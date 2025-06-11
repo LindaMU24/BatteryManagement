@@ -8,6 +8,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -111,32 +112,34 @@ public class BatteryService {
         List<Double> consumption = energyConsumption.getConsumption();
         double maxTotalPower = 11.0;
         double chargingPower = 7.4;
-
-        int bestHour = -1;
         double lowestConsumption = Double.MAX_VALUE;
+        int bestStartHour = -1;
 
         for (int hour = 0; hour < consumption.size(); hour++) {
-            double totalPower = consumption.get(hour) + chargingPower;
-            if (totalPower <= maxTotalPower && consumption.get(hour) < lowestConsumption) {
-                lowestConsumption = consumption.get(hour);
-                bestHour = hour;
+            double currentHourConsumption = consumption.get(hour);
+
+            if (currentHourConsumption + chargingPower <= maxTotalPower && currentHourConsumption < lowestConsumption) {
+                lowestConsumption = currentHourConsumption;
+                bestStartHour = hour;
             }
         }
 
-        if (bestHour != -1) {
+        if (bestStartHour != -1) {
             ChargingSession session = new ChargingSession();
-            LocalDateTime startTime = LocalDateTime.now().withHour(bestHour).withMinute(0);
-            LocalDateTime endTime = startTime.plusMinutes(225); // 3 timmar och 45 minuter
+            LocalDateTime startTime = LocalDateTime.now().withHour(bestStartHour).withMinute(0);
+            LocalDateTime endTime = startTime.plusMinutes(225);  // 3 timmar och 45 minuter
             session.setStartTime(startTime);
             session.setEndTime(endTime);
             session.setTotalEnergyUsed(calculateEnergyUsed(startTime, endTime));
-            session.setOptimizationReason("Lowest consumption hour");
+            session.setOptimizationReason("Lowest consumption period");
 
             return session;
         } else {
+            System.out.println("Ingen lämplig period hittades för laddning baserat på förbrukning.");
             return null;
         }
     }
+
     private double calculateEnergyUsed(LocalDateTime startTime, LocalDateTime endTime) {
         // Beräkna skillnaden i timmar mellan start- och sluttid
         long durationInSeconds = Duration.between(startTime, endTime).getSeconds();
@@ -154,32 +157,53 @@ public class BatteryService {
 
         double maxTotalPower = 11.0;
         double chargingPower = 7.4;
-
-        int bestHour = -1;
         double lowestPrice = Double.MAX_VALUE;
+        int bestStartHour = -1;
 
         for (int hour = 0; hour < prices.size(); hour++) {
-            double totalPower = consumption.get(hour) + chargingPower;
-            if (totalPower <= maxTotalPower && prices.get(hour) < lowestPrice) {
-                lowestPrice = prices.get(hour);
-                bestHour = hour;
+            double currentHourConsumption = consumption.get(hour);
+            double currentHourPrice = prices.get(hour);
+
+            if (currentHourPrice < lowestPrice && currentHourConsumption + chargingPower <= maxTotalPower) {
+                lowestPrice = currentHourPrice;
+                bestStartHour = hour;
             }
         }
 
-        if (bestHour != -1) {
+        if (bestStartHour != -1) {
             ChargingSession session = new ChargingSession();
-            LocalDateTime startTime = LocalDateTime.now().withHour(bestHour).withMinute(0);
-            LocalDateTime endTime = startTime.plusMinutes(225); // 3 timmar och 45 minuter
-
+            LocalDateTime startTime = LocalDateTime.now().withHour(bestStartHour).withMinute(0);
+            LocalDateTime endTime = startTime.plusMinutes(225);  // 3 timmar och 45 minuter
             session.setStartTime(startTime);
             session.setEndTime(endTime);
             session.setTotalEnergyUsed(calculateEnergyUsed(startTime, endTime));
-            session.setOptimizationReason("Lowest price hour");
+            session.setOptimizationReason("Lowest price period");
 
             return session;
         } else {
+            System.out.println("Ingen lämplig period hittades för laddning baserat på pris.");
             return null;
         }
+    }
+        public List<Double> calculateHourlyConsumptionWithCharging(ChargingSession session) {
+        List<Double> consumptionDuringCharging = new ArrayList<>();
+        List<Double> consumption = energyConsumptionService.getConsumptionInfo().getConsumption();
+        double chargingPowerPerInterval = 7.4 / (60 * 15); // Laddningseffekt per 4-sekundersintervall
+
+        // Antal "timmar" (4-sekundersintervaller) i 3 timmar och 45 minuter
+        int numberOfIntervals = (3 * 60 + 45) * 15;
+
+        int startIndex = session.getStartTime().getHour() * 15; // Omvandla starttimmen till startindex baserat på 4-sekundersintervaller
+
+        for (int interval = 0; interval < numberOfIntervals; interval++) {
+            int index = startIndex + interval;
+            if (index < consumption.size()) { // Kontrollera att vi inte går utanför listans gränser
+                double totalConsumption = consumption.get(index) + chargingPowerPerInterval;
+                consumptionDuringCharging.add(totalConsumption);
+            }
+        }
+
+        return consumptionDuringCharging;
     }
 }
 
